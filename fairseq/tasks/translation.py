@@ -17,9 +17,22 @@ from fairseq.data import (
     IndexedDataset,
     IndexedRawTextDataset,
     LanguagePairDataset,
+    LanguageTripleDataset,
+    IndexedRawSememeTextDataset
 )
 
 from . import FairseqTask, register_task
+
+
+def read_word2sememe(path):
+    word2sememe = {}
+    with open(path) as f:
+        lines = f.readlines()
+        for i in range(1, len(lines), 3):
+            word = lines[i-1].strip()
+            sememes = lines[i].strip().split('\t')
+            word2sememe[word] = sememes
+    return word2sememe
 
 
 @register_task('translation')
@@ -87,10 +100,11 @@ class TranslationTask(FairseqTask):
         model.load_state_dict(state_dict, strict=True)
         return model
 
-    def __init__(self, args, src_dict, tgt_dict):
+    def __init__(self, args, src_dict, tgt_dict, sem_dict):
         super().__init__(args)
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
+        self.sem_dict = sem_dict
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -110,14 +124,16 @@ class TranslationTask(FairseqTask):
 
         # load dictionaries
         src_dict = cls.load_dictionary(os.path.join(args.data[0], 'dict.{}.txt'.format(args.source_lang)))
+        sem_dict = cls.load_dictionary(os.path.join(args.data[0], 'dict.sememe.txt'))  # TODO: 可以改名
         tgt_dict = cls.load_dictionary(os.path.join(args.data[0], 'dict.{}.txt'.format(args.target_lang)))
         assert src_dict.pad() == tgt_dict.pad()
         assert src_dict.eos() == tgt_dict.eos()
         assert src_dict.unk() == tgt_dict.unk()
         print('| [{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
+        print('| [{}] dictionary: {} types'.format("sememe", len(sem_dict)))
         print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
 
-        return cls(args, src_dict, tgt_dict)
+        return cls(args, src_dict, tgt_dict, sem_dict)
 
     def load_dataset(self, split, combine=False, **kwargs):
         """Load a given dataset split.
@@ -144,7 +160,18 @@ class TranslationTask(FairseqTask):
                     return IndexedCachedDataset(path, fix_lua_indexing=True)
             return None
 
+        def indexed_sememe_dataset(path, dictionary):
+            if self.args.raw_text:
+                return IndexedRawSememeTextDataset(path, dictionary, append_eos=False)
+            elif IndexedDataset.exists(path):
+                if self.args.lazy_load:
+                    raise NotImplementedError
+                else:
+                    raise NotImplementedError
+            return None
+
         src_datasets = []
+        sem_datasets = []
         tgt_datasets = []
 
         data_paths = self.args.data
@@ -164,8 +191,8 @@ class TranslationTask(FairseqTask):
                         break
                     else:
                         raise FileNotFoundError('Dataset not found: {} ({})'.format(split, data_path))
-
                 src_datasets.append(indexed_dataset(prefix + src, self.src_dict))
+                sem_datasets.append(indexed_sememe_dataset(prefix + 'sem', self.sem_dict))
                 tgt_datasets.append(indexed_dataset(prefix + tgt, self.tgt_dict))
 
                 print('| {} {} {} examples'.format(data_path, split_k, len(src_datasets[-1])))
@@ -176,19 +203,23 @@ class TranslationTask(FairseqTask):
         assert len(src_datasets) == len(tgt_datasets)
 
         if len(src_datasets) == 1:
-            src_dataset, tgt_dataset = src_datasets[0], tgt_datasets[0]
+            src_dataset, tgt_dataset, sem_dataset = src_datasets[0], tgt_datasets[0], sem_datasets[0]
         else:
             sample_ratios = [1] * len(src_datasets)
             sample_ratios[0] = self.args.upsample_primary
             src_dataset = ConcatDataset(src_datasets, sample_ratios)
+            sem_dataset = ConcatDataset(sem_datasets, sample_ratios)
             tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios)
 
-        self.datasets[split] = LanguagePairDataset(
-            src_dataset, src_dataset.sizes, self.src_dict,
+        self.datasets[split] = LanguageTripleDataset(
+            src_dataset, src_dataset.sizes, self.src_dict, 
+            sem_dataset, sem_dataset.sizes, self.sem_dict,
             tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
             left_pad_source=self.args.left_pad_source,
+            left_pad_sememe=self.args.left_pad_source,
             left_pad_target=self.args.left_pad_target,
             max_source_positions=self.args.max_source_positions,
+            max_sememe_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
         )
 
@@ -203,6 +234,11 @@ class TranslationTask(FairseqTask):
     def source_dictionary(self):
         """Return the source :class:`~fairseq.data.Dictionary`."""
         return self.src_dict
+
+    @property
+    def sememe_dictionary(self):
+        """Return the source :class:`~fairseq.data.Dictionary`."""
+        return self.sem_dict
 
     @property
     def target_dictionary(self):

@@ -66,6 +66,7 @@ class IndexedDataset(torch.utils.data.Dataset):
             code, self.element_size = struct.unpack('<QQ', f.read(16))
             self.dtype = dtypes[code]
             self.size, self.s = struct.unpack('<QQ', f.read(16))
+            print(self.size, self.s)
             self.dim_offsets = read_longs(f, self.size + 1)
             self.data_offsets = read_longs(f, self.size + 1)
             self.sizes = read_longs(f, self.s)
@@ -169,10 +170,11 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
         with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 self.lines.append(line.strip('\n'))
-                tokens = dictionary.encode_line(
+                tokens, _ = dictionary.encode_line(
                     line, add_if_not_exist=False,
                     append_eos=self.append_eos, reverse_order=self.reverse_order,
-                ).long()
+                )
+                tokens = tokens.long()
                 self.tokens_list.append(tokens)
                 self.sizes.append(len(tokens))
         self.sizes = np.array(self.sizes)
@@ -258,3 +260,60 @@ class IndexedDatasetBuilder(object):
         write_longs(index, self.data_offsets)
         write_longs(index, self.sizes)
         index.close()
+
+
+class IndexedRawSememeTextDataset(torch.utils.data.Dataset):
+    """Takes a text file as input and binarizes it in memory at instantiation.
+    Original lines are also kept in memory"""
+
+    def __init__(self, path, dictionary, append_eos=True, reverse_order=False):
+        self.tokens_list = []
+        self.lines = []
+        self.sizes = []
+        self.append_eos = append_eos
+        self.reverse_order = reverse_order
+        self.read_data(path, dictionary)
+        self.size = len(self.tokens_list)
+
+    def read_data(self, path, dictionary):
+        with open(path, 'r', encoding='utf-8') as f:
+            ss = 0
+            for line in f:
+                ss += 1
+                if ss % 500000 == 0:
+                    print("Read %d lines ... " % ss)
+                self.lines.append(line.strip('\n'))
+
+                def simple_split(line):
+                    return line.strip().split('\t')
+
+                tokens, _ = dictionary.encode_line(
+                    line, line_tokenizer=simple_split, add_if_not_exist=False,
+                    append_eos=self.append_eos, reverse_order=self.reverse_order,
+                )
+                tokens = tokens.long()
+                self.tokens_list.append(tokens)
+                self.sizes.append(len(tokens))
+        self.sizes = np.array(self.sizes)
+
+    def check_index(self, i):
+        if i < 0 or i >= self.size:
+            raise IndexError('index out of range')
+
+    def __getitem__(self, i):
+        self.check_index(i)
+        return self.tokens_list[i]
+
+    def get_original_text(self, i):
+        self.check_index(i)
+        return self.lines[i]
+
+    def __del__(self):
+        pass
+
+    def __len__(self):
+        return self.size
+
+    @staticmethod
+    def exists(path):
+        return os.path.exists(path)

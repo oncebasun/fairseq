@@ -235,7 +235,7 @@ class Dictionary(object):
             ids[i] = idx
         if append_eos:
             ids[nwords] = self.eos_index
-        return ids
+        return ids, words
 
     @staticmethod
     def _add_file_to_dictionary_single_worker(filename, tokenize, eos_word, worker_id=0, num_workers=1):
