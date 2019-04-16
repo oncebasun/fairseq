@@ -168,7 +168,11 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
 
     def read_data(self, path, dictionary):
         with open(path, 'r', encoding='utf-8') as f:
+            ss = 0
             for line in f:
+                ss += 1
+                if ss % 50000 == 0:
+                    print("Read %d lines ... " % ss)
                 self.lines.append(line.strip('\n'))
                 tokens, _ = dictionary.encode_line(
                     line, add_if_not_exist=False,
