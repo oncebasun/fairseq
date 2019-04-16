@@ -473,7 +473,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
                 x = F.linear(x, self.embed_tokens.weight)
             else:
                 x = self.fc_out(x)
-        return x, attn_scores, sem_attn_scores
+        return x, attn_scores
 
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
