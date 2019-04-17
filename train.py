@@ -105,6 +105,9 @@ def main(args, init_distributed=False):
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
+        ########### case study
+        exit()
+
         if epoch_itr.epoch % args.validate_interval == 0:
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
 

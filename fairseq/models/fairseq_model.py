@@ -5,7 +5,7 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 from typing import Dict, List, Optional
-
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -177,7 +177,49 @@ class FairseqModel(BaseFairseqModel):
         """
         encoder_out = self.encoder(src_tokens, src_lengths)
         decoder_out = self.decoder(prev_output_tokens, encoder_out, sem_tokens, sem_lengths)
-        return decoder_out
+
+        logp, attn_scores, sem_attn_scores = decoder_out
+
+        ################# case study
+        with open('/home/oncebasun/cmu_study/11727/project/casestudy/sem_atten.json', 'a') as f:
+            bsz, seqlen = src_tokens.size()
+            if seqlen != 128:
+                for i in range(bsz):
+                    srclen = src_lengths[i]
+                    src_bpe_pad_list = self.encoder.dictionary.string(src_tokens[i]).split()
+                    src_bpe_list = []
+                    for tok in src_bpe_pad_list:
+                        if tok != '<pad>':
+                            src_bpe_list.append(tok)
+                    tgt_bpe_pad_list = self.decoder.dictionary.string(prev_output_tokens[i]).split()
+                    tgt_bpe_list = []
+                    for tok in tgt_bpe_pad_list:
+                        if tok != '<pad>':
+                            tgt_bpe_list.append(tok)
+                    assert(srclen - 1 == len(src_bpe_list))
+                    tgtlen = len(tgt_bpe_list)
+
+                    sem_pad_list = self.decoder.s_dictionary.string(sem_tokens[i]).split()
+                    sem_list = []
+                    for sem in sem_pad_list:
+                        if sem != '<pad>':
+                            sem_list.append(sem)
+
+                    curr_atten_scores = attn_scores[i][:tgtlen,:srclen-1].detach().numpy().tolist()
+                    curr_sem_attn_scores = sem_attn_scores[i][:tgtlen,-len(sem_list):].detach().numpy().tolist()
+                    
+                    json_data = {
+                        'src': src_bpe_list,
+                        'tgt': tgt_bpe_list,
+                        'sem': sem_list,
+                        'attn': curr_atten_scores,
+                        'semattn': curr_sem_attn_scores
+                    }
+                    f.write(json.dumps(json_data) + '\n')
+
+        ################# case study
+
+        return logp, attn_scores
 
     def max_positions(self):
         """Maximum length supported by the model."""

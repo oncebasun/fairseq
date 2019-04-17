@@ -322,6 +322,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         self.share_input_output_embed = share_input_output_embed
         self.need_attn = True
         self.sem_embed_dim = sem_embed_dim
+        self.s_dictionary = s_dictionary
 
         self.adaptive_softmax = None
         num_embeddings = len(dictionary)
@@ -459,12 +460,18 @@ class LSTMDecoder(FairseqIncrementalDecoder):
 
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         # semlen x tgtlen x bsz -> bsz x tgtlen x semlen
+        ''' for case study
         if not self.training and self.need_attn:
             attn_scores = attn_scores.transpose(0, 2)
             sem_attn_scores = sem_attn_scores.transpose(0, 2)
         else:
             attn_scores = None
             sem_attn_scores = None
+        '''
+        ###### case study
+        attn_scores = attn_scores.transpose(0, 2)
+        sem_attn_scores = sem_attn_scores.transpose(0, 2)
+        ###############
 
         # project back to size of vocabulary
         if self.adaptive_softmax is None:
@@ -475,7 +482,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
                 x = F.linear(x, self.embed_tokens.weight)
             else:
                 x = self.fc_out(x)
-        return x, attn_scores
+        return x, attn_scores, sem_attn_scores
 
     def reorder_sem_tokens(self, sem_tokens, new_order):
         return sem_tokens.index_select(0, new_order)
