@@ -171,7 +171,7 @@ class IndexedRawTextDataset(torch.utils.data.Dataset):
             ss = 0
             for line in f:
                 ss += 1
-                if ss % 500000 == 0:
+                if ss % 100000 == 0:
                     print("Read %d lines ... " % ss)
                 self.lines.append(line.strip('\n'))
                 tokens, _ = dictionary.encode_line(
@@ -284,7 +284,7 @@ class IndexedRawSememeTextDataset(torch.utils.data.Dataset):
             ss = 0
             for line in f:
                 ss += 1
-                if ss % 500000 == 0:
+                if ss % 100000 == 0:
                     print("Read %d lines ... " % ss)
                 self.lines.append(line.strip('\n'))
 
