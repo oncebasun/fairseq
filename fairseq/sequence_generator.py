@@ -122,7 +122,7 @@ class SequenceGenerator(object):
         # separately, but SequenceGenerator directly calls model.encoder
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
-            if k != 'prev_output_tokens'
+            if k not in ('prev_output_tokens', 'sem_tokens', 'sem_lengths')
         }
 
         src_tokens = encoder_input['src_tokens']
@@ -147,6 +147,8 @@ class SequenceGenerator(object):
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
+        sem_tokens = model.reorder_sem_tokens(sample['net_input']['sem_tokens'], new_order)
+        sem_lengths = model.reorder_sem_tokens(sample['net_input']['sem_lengths'], new_order)
 
         # initialize buffers
         scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
@@ -303,8 +305,12 @@ class SequenceGenerator(object):
                     reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-1) * beam_size)
                 model.reorder_incremental_state(reorder_state)
                 model.reorder_encoder_out(encoder_outs, reorder_state)
+                assert isinstance(sem_tokens, list) and len(sem_tokens) == 1
+                assert isinstance(sem_lengths, list) and len(sem_lengths) == 1
+                sem_tokens = model.reorder_sem_tokens(sem_tokens[0], reorder_state)
+                sem_lengths = model.reorder_sem_tokens(sem_lengths[0], reorder_state)
 
-            lprobs, avg_attn_scores = model.forward_decoder(tokens[:, :step + 1], encoder_outs)
+            lprobs, avg_attn_scores = model.forward_decoder(tokens[:, :step + 1], encoder_outs, sem_tokens, sem_lengths)
 
             lprobs[:, self.pad] = -math.inf  # never select pad
             lprobs[:, self.unk] -= self.unk_penalty  # apply unk penalty
@@ -547,20 +553,23 @@ class EnsembleModel(torch.nn.Module):
         return [model.encoder(**encoder_input) for model in self.models]
 
     @torch.no_grad()
-    def forward_decoder(self, tokens, encoder_outs):
+    def forward_decoder(self, tokens, encoder_outs, sem_tokens, sem_lengths):
         if len(self.models) == 1:
             return self._decode_one(
                 tokens,
                 self.models[0],
                 encoder_outs[0] if self.has_encoder() else None,
+                sem_tokens[0],
+                sem_lengths[0],
                 self.incremental_states,
                 log_probs=True,
             )
+        assert NotImplementedError, "ensemble model for sememe is not implemented"
 
         log_probs = []
         avg_attn = None
         for model, encoder_out in zip(self.models, encoder_outs):
-            probs, attn = self._decode_one(tokens, model, encoder_out, self.incremental_states, log_probs=True)
+            probs, attn = self._decode_one(tokens, model, encoder_out, sem_tokens, sem_lengths, self.incremental_states, log_probs=True)
             log_probs.append(probs)
             if attn is not None:
                 if avg_attn is None:
@@ -572,11 +581,11 @@ class EnsembleModel(torch.nn.Module):
             avg_attn.div_(len(self.models))
         return avg_probs, avg_attn
 
-    def _decode_one(self, tokens, model, encoder_out, incremental_states, log_probs):
+    def _decode_one(self, tokens, model, encoder_out, sem_tokens, sem_lengths, incremental_states, log_probs):
         if self.incremental_states is not None:
-            decoder_out = list(model.decoder(tokens, encoder_out, incremental_state=self.incremental_states[model]))
+            decoder_out = list(model.decoder(tokens, encoder_out, sem_tokens, sem_lengths, incremental_state=self.incremental_states[model]))
         else:
-            decoder_out = list(model.decoder(tokens, encoder_out))
+            decoder_out = list(model.decoder(tokens, encoder_out, sem_tokens, sem_lengths))
         decoder_out[0] = decoder_out[0][:, -1:, :]
         attn = decoder_out[1]
         if type(attn) is dict:
@@ -602,3 +611,10 @@ class EnsembleModel(torch.nn.Module):
             return
         for model in self.models:
             model.decoder.reorder_incremental_state(self.incremental_states[model], new_order)
+
+    def reorder_sem_tokens(self, sem_tokens, new_order):
+        # TODO: ensemble model
+        return [
+            model.decoder.reorder_sem_tokens(sem_tokens, new_order)
+            for model in self.models
+        ]

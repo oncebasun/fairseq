@@ -289,7 +289,7 @@ class IndexedRawSememeTextDataset(torch.utils.data.Dataset):
                 self.lines.append(line.strip('\n'))
 
                 def simple_split(line):
-                    return line.strip().split('\t')
+                    return line.strip().split()
 
                 tokens, _ = dictionary.encode_line(
                     line, line_tokenizer=simple_split, add_if_not_exist=False,

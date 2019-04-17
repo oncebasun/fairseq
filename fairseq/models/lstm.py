@@ -370,6 +370,8 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
     def forward(self, prev_output_tokens, encoder_out_dict, sem_tokens, sem_lengths, incremental_state=None):
+        print(sem_tokens)
+        print(sem_lengths)
         encoder_out = encoder_out_dict['encoder_out']
         encoder_padding_mask = encoder_out_dict['encoder_padding_mask']
 
@@ -474,6 +476,9 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             else:
                 x = self.fc_out(x)
         return x, attn_scores
+
+    def reorder_sem_tokens(self, sem_tokens, new_order):
+        return sem_tokens.index_select(0, new_order)
 
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
