@@ -175,6 +175,8 @@ class FairseqModel(BaseFairseqModel):
         Returns:
             the decoder's output, typically of shape `(batch, tgt_len, vocab)`
         """
+        print(sem_tokens)
+        print(sem_lengths)
         encoder_out = self.encoder(src_tokens, src_lengths)
         decoder_out = self.decoder(prev_output_tokens, encoder_out, sem_tokens, sem_lengths)
         return decoder_out
