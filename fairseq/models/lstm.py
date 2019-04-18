@@ -470,7 +470,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         attn_scores = attn_scores.transpose(0, 2)
         sem_attn_scores = sem_attn_scores.transpose(0, 2)
         for i in range(bsz):
-            print(sem_attn_scores[i].detach().numpy())
+            print(sem_attn_scores[i].detach().cpu().numpy())
 
         # project back to size of vocabulary
         if self.adaptive_softmax is None:
