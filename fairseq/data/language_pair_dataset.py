@@ -91,6 +91,8 @@ def collate_sememe(
 
     sem_tokens = merge('sememe', left_pad=left_pad_sememe)
     sem_lengths = torch.LongTensor([s['sememe'].numel() for s in samples])
+    print(sem_tokens)
+    print(sem_lengths)
     sem_tokens = sem_tokens.index_select(0, sort_order)
     sem_lengths = sem_lengths.index_select(0, sort_order)
 
