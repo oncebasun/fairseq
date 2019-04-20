@@ -384,12 +384,12 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         ])
         if attention:
             # TODO make bias configurable
-            self.attention = AttentionLayer(hidden_size, encoder_output_units, bias=False)
+            self.attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
         else:
             self.attention = None
 
         # We always have sememe attention!!!!!
-        self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, bias=False)
+        self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, hidden_size, bias=False)
 
         #self.fc_after_attn = Linear(hidden_size + encoder_output_units + sem_embed_dim, hidden_size, bias=False)
         self.fc_after_attn = Linear(hidden_size + encoder_output_units, hidden_size, bias=False)
@@ -473,7 +473,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             sem_out, sem_attn_scores[:, j, :] = self.sem_attention(hidden, sem_embeds, sem_padding_mask)
 
             #out = F.tanh(self.fc_after_attn(torch.cat((hidden, out, sem_out), dim=1)))
-            out = F.tanh(self.fc_after_attn(torch.cat((hidden, out), dim=1)))
+            #out = F.tanh(self.fc_after_attn(torch.cat((hidden, out), dim=1)))
 
             # input feeding
             input_feed = out
