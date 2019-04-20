@@ -391,7 +391,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, hidden_size, bias=False)
 
         #self.fc_after_attn = Linear(hidden_size + encoder_output_units + sem_embed_dim, hidden_size, bias=False)
-        self.fc_after_attn = Linear(hidden_size + encoder_output_units, hidden_size, bias=False)
+        #self.fc_after_attn = Linear(hidden_size + encoder_output_units, hidden_size, bias=False)
 
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
