@@ -279,7 +279,7 @@ class AttentionLayer(nn.Module):
         super().__init__()
 
         self.input_proj = Linear(input_embed_dim, source_embed_dim, bias=bias)
-        #self.output_proj = Linear(input_embed_dim + source_embed_dim, output_embed_dim, bias=bias)
+        self.output_proj = Linear(input_embed_dim + source_embed_dim, input_embed_dim, bias=bias)
 
     def forward(self, input, source_hids, encoder_padding_mask):
         # input: bsz x input_embed_dim
@@ -303,7 +303,7 @@ class AttentionLayer(nn.Module):
         # sum weighted sources
         x = (attn_scores.unsqueeze(2) * source_hids).sum(dim=0)
 
-        #x = F.tanh(self.output_proj(torch.cat((x, input), dim=1)))
+        x = F.tanh(self.output_proj(torch.cat((x, input), dim=1)))
         return x, attn_scores
 '''
 class AttentionLayer(nn.Module):
@@ -468,9 +468,9 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             else:
                 out = hidden
 
-            sem_out, sem_attn_scores[:, j, :] = self.sem_attention(hidden, sem_embeds, sem_padding_mask)
+            #sem_out, sem_attn_scores[:, j, :] = self.sem_attention(hidden, sem_embeds, sem_padding_mask)
 
-            out = F.tanh(self.fc_after_attn(torch.cat((out, hidden), dim=1)))
+            #out = F.tanh(self.fc_after_attn(torch.cat((out, hidden), dim=1)))
 
             out = F.dropout(out, p=self.dropout_out, training=self.training)
 
