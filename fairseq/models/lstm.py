@@ -364,11 +364,6 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         else:
             self.embed_tokens = pretrained_embed
 
-        num_sem_embeddings = len(s_dictionary)
-        self.padding_sem_idx = s_dictionary.pad()
-        # TODO: pretrained sememe embeddings
-        self.sem_embed_tokens = Embedding(num_sem_embeddings, sem_embed_dim, self.padding_sem_idx)
-
         self.encoder_output_units = encoder_output_units
         if encoder_output_units != hidden_size:
             self.encoder_hidden_proj = Linear(encoder_output_units, hidden_size)
@@ -387,13 +382,6 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             self.attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
         else:
             self.attention = None
-
-        # We always have sememe attention!!!!!
-        self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, hidden_size, bias=False)
-
-        #self.fc_after_attn = Linear(hidden_size + encoder_output_units + sem_embed_dim, hidden_size, bias=False)
-        #self.fc_after_attn = Linear(hidden_size + encoder_output_units, hidden_size, bias=False)
-
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
@@ -404,8 +392,6 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
     def forward(self, prev_output_tokens, encoder_out_dict, sem_tokens, sem_lengths, incremental_state=None):
-        #print(sem_tokens)
-        #print(sem_lengths)
         encoder_out = encoder_out_dict['encoder_out']
         encoder_padding_mask = encoder_out_dict['encoder_padding_mask']
 
@@ -421,12 +407,6 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         # embed tokens
         x = self.embed_tokens(prev_output_tokens)
         x = F.dropout(x, p=self.dropout_in, training=self.training)
-
-        # embed sememes
-        sem_embeds = self.sem_embed_tokens(sem_tokens)
-        sem_embeds = F.dropout(sem_embeds, p=self.dropout_in, training=self.training)
-        sem_embeds = sem_embeds.permute(1, 0, 2)  # (semlen, batch, sem_emb_dim)
-        sem_padding_mask = sem_tokens.eq(self.padding_sem_idx).t()  # (semlen, batch)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -468,12 +448,6 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             else:
                 out = hidden
             out = F.dropout(out, p=self.dropout_out, training=self.training)
-
-            # test
-            sem_out, sem_attn_scores[:, j, :] = self.sem_attention(hidden, sem_embeds, sem_padding_mask)
-
-            #out = F.tanh(self.fc_after_attn(torch.cat((hidden, out, sem_out), dim=1)))
-            #out = F.tanh(self.fc_after_attn(torch.cat((hidden, out), dim=1)))
 
             # input feeding
             input_feed = out
