@@ -275,6 +275,38 @@ class LSTMEncoder(FairseqEncoder):
 
 
 class AttentionLayer(nn.Module):
+    def __init__(self, input_embed_dim, source_embed_dim, bias=False):
+        super().__init__()
+
+        self.input_proj = Linear(input_embed_dim, source_embed_dim, bias=bias)
+        #self.output_proj = Linear(input_embed_dim + source_embed_dim, output_embed_dim, bias=bias)
+
+    def forward(self, input, source_hids, encoder_padding_mask):
+        # input: bsz x input_embed_dim
+        # source_hids: srclen x bsz x output_embed_dim
+
+        # x: bsz x output_embed_dim
+        x = self.input_proj(input)
+
+        # compute attention
+        attn_scores = (source_hids * x.unsqueeze(0)).sum(dim=2)
+
+        # don't attend over padding
+        if encoder_padding_mask is not None:
+            attn_scores = attn_scores.float().masked_fill_(
+                encoder_padding_mask,
+                float('-inf')
+            ).type_as(attn_scores)  # FP16 support: cast to float and back
+
+        attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz
+
+        # sum weighted sources
+        x = (attn_scores.unsqueeze(2) * source_hids).sum(dim=0)
+
+        #x = F.tanh(self.output_proj(torch.cat((x, input), dim=1)))
+        return x, attn_scores
+'''
+class AttentionLayer(nn.Module):
     def __init__(self, input_embed_dim, source_embed_dim, output_embed_dim, bias=False):
         super().__init__()
 
@@ -305,6 +337,7 @@ class AttentionLayer(nn.Module):
 
         x = F.tanh(self.output_proj(torch.cat((x, input), dim=1)))
         return x, attn_scores
+'''
 
 
 class LSTMDecoder(FairseqIncrementalDecoder):
@@ -331,6 +364,11 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         else:
             self.embed_tokens = pretrained_embed
 
+        num_sem_embeddings = len(s_dictionary)
+        self.padding_sem_idx = s_dictionary.pad()
+        # TODO: pretrained sememe embeddings
+        self.sem_embed_tokens = Embedding(num_sem_embeddings, sem_embed_dim, self.padding_sem_idx)
+
         self.encoder_output_units = encoder_output_units
         if encoder_output_units != hidden_size:
             self.encoder_hidden_proj = Linear(encoder_output_units, hidden_size)
@@ -346,9 +384,18 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         ])
         if attention:
             # TODO make bias configurable
-            self.attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
+            #self.attention = AttentionLayer(hidden_size, encoder_output_units, hidden_size, bias=False)
+            self.attention = AttentionLayer(hidden_size, encoder_output_units, bias=False)
         else:
             self.attention = None
+
+        # We always have sememe attention!!!!!
+        #self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, hidden_size, bias=False)
+        self.sem_attention = AttentionLayer(hidden_size, sem_embed_dim, bias=False)
+
+        #self.fc_after_attn = Linear(hidden_size + encoder_output_units + sem_embed_dim, hidden_size, bias=False)
+        self.fc_after_attn = Linear(hidden_size + encoder_output_units, hidden_size, bias=False)
+
         if hidden_size != out_embed_dim:
             self.additional_fc = Linear(hidden_size, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
@@ -369,10 +416,17 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         # get outputs from encoder
         encoder_outs, encoder_hiddens, encoder_cells = encoder_out[:3]
         srclen = encoder_outs.size(0)
+        semlen = sem_tokens.size(1)
 
         # embed tokens
         x = self.embed_tokens(prev_output_tokens)
         x = F.dropout(x, p=self.dropout_in, training=self.training)
+
+        # embed sememes
+        sem_embeds = self.sem_embed_tokens(sem_tokens)
+        sem_embeds = F.dropout(sem_embeds, p=self.dropout_in, training=self.training)
+        sem_embeds = sem_embeds.permute(1, 0, 2)  # (semlen, batch, sem_emb_dim)
+        sem_padding_mask = sem_tokens.eq(self.padding_sem_idx).t()  # (semlen, batch)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -391,6 +445,7 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             input_feed = x.new_zeros(bsz, self.hidden_size)
 
         attn_scores = x.new_zeros(srclen, seqlen, bsz)
+        sem_attn_scores = x.new_zeros(semlen, seqlen, bsz)
         outs = []
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
@@ -412,6 +467,11 @@ class LSTMDecoder(FairseqIncrementalDecoder):
                 out, attn_scores[:, j, :] = self.attention(hidden, encoder_outs, encoder_padding_mask)
             else:
                 out = hidden
+
+            sem_out, sem_attn_scores[:, j, :] = self.sem_attention(hidden, sem_embeds, sem_padding_mask)
+
+            out = F.tanh(self.fc_after_attn(torch.cat((out, hidden), dim=1)))
+
             out = F.dropout(out, p=self.dropout_out, training=self.training)
 
             # input feeding
@@ -433,10 +493,13 @@ class LSTMDecoder(FairseqIncrementalDecoder):
         x = x.transpose(1, 0)
 
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
+        # semlen x tgtlen x bsz -> bsz x tgtlen x semlen
         if not self.training and self.need_attn:
             attn_scores = attn_scores.transpose(0, 2)
+            sem_attn_scores = sem_attn_scores.transpose(0, 2)
         else:
             attn_scores = None
+            sem_attn_scores = None
 
         # project back to size of vocabulary
         if self.adaptive_softmax is None:
@@ -448,6 +511,9 @@ class LSTMDecoder(FairseqIncrementalDecoder):
             else:
                 x = self.fc_out(x)
         return x, attn_scores
+
+    def reorder_sem_tokens(self, sem_tokens, new_order):
+        return sem_tokens.index_select(0, new_order)
 
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
